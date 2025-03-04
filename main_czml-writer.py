@@ -35,53 +35,33 @@ def parse_csv(file_path):
 
 def euler_to_quaternion(heading_deg, pitch_deg, roll_deg):
 	"""
-    Convert Euler angles (heading/yaw, pitch, roll) to quaternion [x,y,z,w].
+    Convert Euler angles to quaternion, focusing on heading accuracy.
 
     Args:
         heading_deg: Heading in degrees (0=North, 90=East)
-        pitch_deg: Pitch in degrees (positive=nose up)
-        roll_deg: Roll in degrees (positive=right wing down)
+        pitch_deg: Pitch in degrees (ignored for now)
+        roll_deg: Roll in degrees (ignored for now)
 
     Returns:
         List of quaternion components [x,y,z,w]
     """
-	# Convert to radians
-	heading_rad = math.radians(heading_deg)
-	pitch_rad = math.radians(pitch_deg)
-	roll_rad = math.radians(roll_deg)
+	# For debugging
+	print(f"Processing orientation: Heading={heading_deg}°")
 
-	# For Cesium, we need to use a different rotation order and axis alignment
-	# Rotate around axes in order: Z (heading), X (roll), Y (pitch)
-	# This differs from aircraft convention but better matches Cesium's expectations
+	# The ROV model appears to have its "forward" direction different from what we expect
+	# Add 180 degrees to correct the orientation (point the ROV in the direction of travel)
+	adjusted_heading = (heading_deg + 180.0) % 360.0
+	print(f"Adjusted heading: {adjusted_heading}°")
 
-	# Half angles for quaternion calculation
-	hz = heading_rad / 2.0
-	px = roll_rad / 2.0  # Roll around X axis
-	ry = -pitch_rad / 2.0  # Negative pitch around Y axis
+	# Convert heading to radians
+	heading_rad = math.radians(adjusted_heading)
 
-	# Calculate the quaternion components for each rotation axis
-	cz = math.cos(hz)
-	sz = math.sin(hz)
-	cx = math.cos(px)
-	sx = math.sin(px)
-	cy = math.cos(ry)
-	sy = math.sin(ry)
+	# Simple quaternion for rotation around the vertical axis (z-axis)
+	qz = math.sin(heading_rad / 2.0)
+	qw = math.cos(heading_rad / 2.0)
 
-	# Combine the rotations in the correct order (Z-X-Y)
-	qw = cz * cx * cy - sz * sx * sy
-	qx = cz * sx * cy - sz * cx * sy
-	qy = cz * cx * sy + sz * sx * cy
-	qz = sz * cx * cy + cz * sx * sy
-
-	# Normalize quaternion
-	magnitude = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
-	if magnitude > 0:
-		qw /= magnitude
-		qx /= magnitude
-		qy /= magnitude
-		qz /= magnitude
-
-	return [qx, qy, qz, qw]
+	# Return simple heading-only quaternion
+	return [0.0, 0.0, qz, qw]
 
 def seconds_between(start_time_str, current_time_str):
 	"""
@@ -141,9 +121,14 @@ def build_czml(data):
 	position_list = []
 	orientation_list = []
 
-	for row in data:
-		if all(row.get(k) is not None for k in
-			   ["Timestamp", "Latitude", "Longitude", "Depth", "Heading", "Pitch", "Roll"]):
+	prev_heading = None
+
+	# Use full dataset for production version
+	print(f"Processing {len(data)} total data points")
+
+	for i, row in enumerate(data):
+		# Make sure we have all required position data
+		if all(row.get(k) is not None for k in ["Timestamp", "Latitude", "Longitude", "Depth"]):
 			offset_sec = seconds_between(start_time, row["Timestamp"])
 			position_list.extend([
 				offset_sec,
@@ -152,23 +137,46 @@ def build_czml(data):
 				row["Depth"]  # negative altitude => below ellipsoid
 			])
 
-			# Use all three orientation angles with error handling
-			try:
-				# Ensure all orientation values are numeric
-				heading = float(row["Heading"]) if isinstance(row["Heading"], (int, float, str)) else 0.0
-				pitch = float(row["Pitch"]) if isinstance(row["Pitch"], (int, float, str)) else 0.0
-				roll = float(row["Roll"]) if isinstance(row["Roll"], (int, float, str)) else 0.0
+			# Make sure we have heading data and process orientation
+			if row.get("Heading") is not None:
+				# Use heading-only orientation
+				try:
+					# Ensure heading is a float
+					heading = float(row["Heading"])
 
-				qx, qy, qz, qw = euler_to_quaternion(heading, pitch, roll)
-			except (ValueError, TypeError) as e:
-				print(f"Error converting orientation at timestamp {row['Timestamp']}: {e}")
-				# Use default orientation (no rotation)
-				qx, qy, qz, qw = 0.0, 0.0, 0.0, 1.0
-			orientation_list.extend([offset_sec, qx, qy, qz, qw])
+					# Debug heading changes
+					if prev_heading is not None:
+						heading_change = abs(heading - prev_heading)
+						heading_change = min(heading_change, 360 - heading_change)  # Adjust for circular values
+						if heading_change > 30:  # Only print significant changes
+							print(
+								f"Significant heading change at point {i}: {prev_heading}° → {heading}° (Δ{heading_change:.1f}°)")
+					prev_heading = heading
 
-	if not position_list or not orientation_list:
-		print("No valid position or orientation data found. Returning doc only.")
+					# Get quaternion (ignoring pitch and roll for now)
+					qx, qy, qz, qw = euler_to_quaternion(heading, 0, 0)
+
+					# Debug major heading values (but limit output)
+					if i % 1000 == 0:  # Print fewer lines
+						print(
+							f"Timestamp: {row['Timestamp']}, Heading: {heading}°, Quaternion: [{qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}]")
+
+					orientation_list.extend([offset_sec, qx, qy, qz, qw])
+				except Exception as e:
+					print(f"Error calculating orientation at {row['Timestamp']}: {e}")
+			else:
+				print(f"Warning: Missing heading data at {row['Timestamp']}")
+
+	if not position_list:
+		print("No valid position data found. Returning doc only.")
 		return [document_packet]
+
+	if not orientation_list:
+		print("Warning: No valid orientation data found.")
+
+	# Print summary for debugging
+	print(f"Generated {len(position_list) // 4} position points")
+	print(f"Generated {len(orientation_list) // 5} orientation quaternions")
 
 	# 2) ROV main entity
 	hercules_packet = {
@@ -192,26 +200,30 @@ def build_czml(data):
 				}
 			},
 			"resolution": 2,
-			"leadTime": 999999999.0,
-			"trailTime": 0.0
+			"leadTime": 999999999.0,  # Show entire path ahead
+			"trailTime": 999999999.0  # Show entire path behind
 		},
 		"position": {
 			"epoch": start_time,
 			"interpolationAlgorithm": "LAGRANGE",
 			"interpolationDegree": 1,
 			"cartographicDegrees": position_list
-		},
-		"orientation": {
+		}
+	}
+
+	# Only add orientation if we have data
+	if orientation_list:
+		hercules_packet["orientation"] = {
 			"epoch": start_time,
 			"interpolationAlgorithm": "LINEAR",
 			"unitQuaternion": orientation_list
-		},
-		"point": {
-			"color": {"rgba": [0, 255, 255, 255]},  # Cyan
-			"pixelSize": 8,
-			"outlineColor": {"rgba": [0, 0, 0, 255]},
-			"outlineWidth": 1
 		}
+
+	hercules_packet["point"] = {
+		"color": {"rgba": [0, 255, 255, 255]},  # Cyan
+		"pixelSize": 8,
+		"outlineColor": {"rgba": [0, 0, 0, 255]},
+		"outlineWidth": 1
 	}
 
 	czml = [document_packet, hercules_packet]

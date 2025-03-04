@@ -254,39 +254,45 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
     <div id="orientationInfo">
       <div>Heading: <span id="headingValue">N/A</span>°</div>
       <div>Quaternion: <span id="quaternionValue">N/A</span></div>
+      <div>Position: <span id="positionValue">N/A</span></div>
+      <div>Velocity: <span id="velocityValue">N/A</span></div>
     </div>
+    <button id="visualizeDirectionBtn" style="margin-top:10px">Show Direction Vector</button>
   `;
   document.body.appendChild(debugPanel);
+
+  // Direction vector visualization state
+  window.showDirectionVector = false;
 
   // Load and display the CZML
   try {
     // Try to load the latest CZML file with today's date
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     console.log(`Looking for CZML file with date: ${today}`);
-    
+
     // Define potential file paths to try
     const filePaths = [
       `./NA156_H2021_${today}.czml`,
       "./NA156_H2021_manual.czml",
       // Add any other potential file names here
     ];
-    
+
     console.log("Attempting to load CZML from the following paths:", filePaths);
-    
+
     let czmlDataSource = null;
     let loadSuccess = false;
-    
+
     // Try each file path until one works
     for (const filePath of filePaths) {
       if (loadSuccess) break;
-      
+
       try {
         console.log(`Trying to load: ${filePath}`);
         const czmlResource = new Cesium.Resource({
           url: filePath,
           proxy: new Cesium.DefaultProxy('/proxy/')
         });
-        
+
         czmlDataSource = await Cesium.CzmlDataSource.load(czmlResource);
         console.log(`Successfully loaded: ${filePath}`);
         loadSuccess = true;
@@ -294,16 +300,16 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
         console.log(`Failed to load: ${filePath}`, error);
       }
     }
-    
+
     // If no local files worked, try from Ion
     if (!loadSuccess) {
       console.log("Local CZML not found, using Ion asset instead...");
-      const ionResource = await Cesium.IonResource.fromAssetId(3167337);
+      const ionResource = await Cesium.IonResource.fromAssetId(3167363);
       czmlDataSource = await Cesium.CzmlDataSource.load(ionResource);
       console.log("Successfully loaded CZML from Ion");
       loadSuccess = true;
     }
-    
+
     if (!loadSuccess || !czmlDataSource) {
       throw new Error("Failed to load any CZML source");
     }
@@ -331,16 +337,60 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
               const qy = orientation.y;
               const qz = orientation.z;
               const qw = orientation.w;
-              
-              // Calculate heading (approximate for simple quaternions)
+
+              // Calculate heading from quaternion
+              // For a heading-only quaternion (rotation around z-axis), this formula works:
               let heading = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
               heading = heading * (180 / Math.PI); // Convert to degrees
               if (heading < 0) heading += 360; // Normalize to 0-360
-              
+
+              // Get position
+              const position = herculesEntity.position.getValue(viewer.clock.currentTime);
+              const cartographic = Cesium.Cartographic.fromCartesian(position);
+              const lat = Cesium.Math.toDegrees(cartographic.latitude).toFixed(6);
+              const lon = Cesium.Math.toDegrees(cartographic.longitude).toFixed(6);
+              const alt = cartographic.height.toFixed(2);
+
+              // Get velocity (if available)
+              let velocity = "N/A";
+              if (herculesEntity.velocity) {
+                try {
+                  const vel = herculesEntity.velocity.getValue(viewer.clock.currentTime);
+                  if (vel) {
+                    const speed = Cesium.Cartesian3.magnitude(vel);
+                    velocity = speed.toFixed(2) + " m/s";
+                  }
+                } catch (e) {
+                  // Velocity might not be available
+                }
+              }
+
               // Update debug panel
               document.getElementById('headingValue').textContent = heading.toFixed(1);
-              document.getElementById('quaternionValue').textContent = 
+              document.getElementById('quaternionValue').textContent =
                 `[${qx.toFixed(3)}, ${qy.toFixed(3)}, ${qz.toFixed(3)}, ${qw.toFixed(3)}]`;
+              document.getElementById('positionValue').textContent =
+                `Lat: ${lat}°, Lon: ${lon}°, Alt: ${alt}m`;
+              document.getElementById('velocityValue').textContent = velocity;
+
+              // Store heading history to detect changes
+              const headingHistory = window.headingHistory || [];
+              if (headingHistory.length === 0 ||
+                  Math.abs(headingHistory[headingHistory.length-1] - heading) > 5) {
+                headingHistory.push(heading);
+                if (headingHistory.length > 10) headingHistory.shift();
+                window.headingHistory = headingHistory;
+
+                // Log significant heading changes
+                if (headingHistory.length > 1) {
+                  const prevHeading = headingHistory[headingHistory.length-2];
+                  const headingChange = Math.abs(heading - prevHeading);
+                  const normalizedChange = Math.min(headingChange, 360-headingChange);
+                  if (normalizedChange > 30) {
+                    console.log(`Significant heading change: ${prevHeading.toFixed(1)}° → ${heading.toFixed(1)}° (Δ${normalizedChange.toFixed(1)}°)`);
+                  }
+                }
+              }
             }
           } catch (error) {
             console.error("Error updating orientation debug:", error);
@@ -360,7 +410,59 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
           minimumPixelSize: 64,
           maximumScale: 20,
           runAnimations: true,
-          // No need for additional transformations - using CZML orientation
+        });
+
+        // Add a direction arrow to visualize heading
+        let directionArrow = viewer.entities.add({
+          name: 'Direction Vector',
+          position: new Cesium.CallbackProperty(function(time) {
+            return herculesEntity.position.getValue(time);
+          }, false),
+          orientation: new Cesium.CallbackProperty(function(time) {
+            return herculesEntity.orientation.getValue(time);
+          }, false),
+          polyline: {
+            show: new Cesium.CallbackProperty(function() {
+              return window.showDirectionVector;
+            }, false),
+            positions: new Cesium.CallbackProperty(function(time) {
+              const position = herculesEntity.position.getValue(time);
+              const orientation = herculesEntity.orientation.getValue(time);
+              if (!position || !orientation) return [position, position];
+
+              // Create a direction vector pointing "forward" from the ROV
+              // Convert quaternion to heading direction
+              const headingMatrix = Cesium.Matrix3.fromQuaternion(orientation);
+              const direction = new Cesium.Cartesian3(1, 0, 0);  // "forward" direction
+              const rotatedDirection = Cesium.Matrix3.multiplyByVector(
+                headingMatrix, direction, new Cesium.Cartesian3()
+              );
+
+              // Scale the direction vector
+              const length = 10.0;  // 10 meters
+              const scaledDirection = Cesium.Cartesian3.multiplyByScalar(
+                rotatedDirection, length, new Cesium.Cartesian3()
+              );
+
+              // Calculate endpoint
+              const endPoint = Cesium.Cartesian3.add(
+                position, scaledDirection, new Cesium.Cartesian3()
+              );
+
+              return [position, endPoint];
+            }, false),
+            width: 5,
+            material: new Cesium.PolylineArrowMaterialProperty(
+              Cesium.Color.YELLOW
+            )
+          }
+        });
+
+        // Add click handler for direction visualization button
+        document.getElementById('visualizeDirectionBtn').addEventListener('click', function() {
+          window.showDirectionVector = !window.showDirectionVector;
+          this.textContent = window.showDirectionVector ?
+            "Hide Direction Vector" : "Show Direction Vector";
         });
 
         // Track the ROV with the camera
