@@ -62,9 +62,9 @@ def heading_to_quaternion(heading_deg):
 def build_czml(data):
     """
     Build a list of CZML packets matching the official spec, including:
-      - Document packet (with 'viewFrom', 'interval', etc.)
-      - ROV packet with path + orientation + model
-      - Sensor and event packets referencing the ROV
+      - Document packet (with 'interval' & 'clock')
+      - ROV entity with path + orientation + model (no default viewFrom)
+      - Sensor/event child packets referencing the ROV
     """
     if not data:
         return []
@@ -84,9 +84,7 @@ def build_czml(data):
             "multiplier": 10,
             "range": "LOOP_STOP",
             "step": "SYSTEM_CLOCK_MULTIPLIER"
-        },
-        # Optional: place a 'viewFrom' at the top level (some apps allow this).
-        # More commonly, 'viewFrom' goes on the main entity. We'll do it in the entity.
+        }
     }
 
     # Build arrays for positions/orientation
@@ -109,13 +107,12 @@ def build_czml(data):
         print("No valid position or orientation data found. Returning doc only.")
         return [document_packet]
 
-    # 2) Create the main ROV packet (similar to the "Drone" example).
+    # 2) ROV packet
     hercules_packet = {
         "id": "Hercules",
         "name": "Hercules ROV",
         "availability": f"{start_time}/{end_time}",
         "description": "Visualizing the ROV track, orientation, and sensor data.",
-        # Show entire path from start_time to end_time
         "path": {
             "show": [
                 {
@@ -132,16 +129,11 @@ def build_czml(data):
                 }
             },
             "resolution": 2,
-            # leadTime / trailTime set to 0 => entire path visible
+            # Show entire path at once
             "leadTime": 999999999.0,
             "trailTime": 0.0
         },
-        # "viewFrom": sets the default camera offset behind the ROV by ~100m
-        # The cartesian is ECEF. If you want a local offset behind the heading direction,
-        # you'd need to dynamically compute it. This is a simple static offset.
-        "viewFrom": {
-            "cartesian": [0, -100, 50]
-        },
+        # Removed "viewFrom" so CesiumJS or Ion handles camera logic.
         "position": {
             "epoch": start_time,
             "interpolationAlgorithm": "LAGRANGE",
@@ -154,14 +146,12 @@ def build_czml(data):
             "unitQuaternion": orientation_list
         },
         "model": {
-            # We mimic the example by specifying an array with intervals,
-            # but a single object is typically okay. We'll do a single object:
             "gltf": "https://assets.cesium.com/3163466/scene.gltf?access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIyMjA1Y2ZhZC1hM2IwLTQ4MzQtYWYwZi00MTFmZTEwYjJjMDMiLCJpZCI6MTQ4NTYyLCJpYXQiOjE3MzU4ODQ1Nzh9.jqwp1s3lkvA4Us0vA0skO03kqVya7Sj22kJJKWV6D8M",
             "runAnimations": True,
             "scale": 1.0,
             "show": True
         },
-        # Optionally add a small point or billboard to confirm location
+        # Optionally keep a point for debugging
         "point": {
             "color": {"rgba": [0, 255, 255, 255]},  # Cyan
             "pixelSize": 8,
@@ -172,7 +162,7 @@ def build_czml(data):
 
     czml = [document_packet, hercules_packet]
 
-    # 3) Sensor + Event Packets
+    # 3) Sensor + Event child packets
     for i, row in enumerate(data):
         timestamp = row.get("Timestamp")
         if not timestamp:
@@ -192,14 +182,24 @@ def build_czml(data):
                     "availability": availability_str,
                     "position": {"reference": "Hercules#position"},
                     "label": {
+                        "style": "FILL_AND_OUTLINE",
+                        "scale": 0.5,
+                        "horizontalOrigin": "LEFT",
+                        "show": True,
                         "text": (f"O2: {row['O2_Concentration']:.2f} mg/L\n"
                                  f"Temp: {row['Temperature']:.2f}°C"),
-                        "fillColor": {"rgba": [255, 255, 255, 255]},
-                        "pixelOffset": {"cartesian2": [0, -30]},
-                        "show": True,
-                        "font": "12pt sans-serif",
-                        "horizontalOrigin": "CENTER",
-                        "verticalOrigin": "BOTTOM",
+                        "disableDepthTestDistance": 9999999999,
+                        "pixelOffset": {
+                            "cartesian2": [5, -30]
+                        },
+                        "fillColor": {
+                            "rgba": [255, 255, 255, 255]
+                        },
+                        "verticalOrigin": "CENTER",
+                        "font": "bold 15pt Calibri",
+                        "distanceDisplayCondition": {
+                            "distanceDisplayCondition": [100, 9999999]
+                        },
                         "outlineWidth": 2,
                         "outlineColor": {"rgba": [0, 0, 0, 255]}
                     }
@@ -237,21 +237,37 @@ def build_czml(data):
                 "availability": availability_str,
                 "position": {"reference": "Hercules#position"},
                 "billboard": {
-                    "image": image_path,
                     "scale": scale,
-                    "color": {"rgba": rgba},
-                    "horizontalOrigin": "CENTER",
-                    "verticalOrigin": "BOTTOM",
-                    "pixelOffset": {"cartesian2": [0, 0]}
+                    "horizontalOrigin": "RIGHT",
+                    "eyeOffset": {"cartesian": [0, 0, 0]},
+                    "image": image_path,
+                    "show": True,
+                    "pixelOffset": {"cartesian2": [0, 0]},
+                    "verticalOrigin": "CENTER",
+                    "distanceDisplayCondition": {
+                        "distanceDisplayCondition": [100, 9999999]
+                    },
+                    "disableDepthTestDistance": 9999999999,
+                    "color": {"rgba": rgba}
                 },
                 "label": {
-                    "text": event_text,
-                    "fillColor": {"rgba": [255, 255, 255, 255]},
-                    "pixelOffset": {"cartesian2": [0, -50]},
+                    "style": "FILL_AND_OUTLINE",
+                    "scale": 0.5,
+                    "horizontalOrigin": "LEFT",
                     "show": True,
-                    "font": "14pt sans-serif",
-                    "horizontalOrigin": "CENTER",
-                    "verticalOrigin": "BOTTOM",
+                    "text": event_text,
+                    "disableDepthTestDistance": 9999999999,
+                    "pixelOffset": {
+                        "cartesian2": [5, -50]
+                    },
+                    "fillColor": {
+                        "rgba": [255, 255, 255, 255]
+                    },
+                    "verticalOrigin": "CENTER",
+                    "font": "bold 15pt Calibri",
+                    "distanceDisplayCondition": {
+                        "distanceDisplayCondition": [100, 9999999]
+                    },
                     "outlineWidth": 2,
                     "outlineColor": {"rgba": [0, 0, 0, 255]}
                 }
