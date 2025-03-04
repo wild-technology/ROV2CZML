@@ -1,98 +1,78 @@
-﻿// Set your Ion default token (for both Bathymetry and loading the CZML)
-Cesium.Ion.defaultAccessToken =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-+ "eyJqdGkiOiIyMjA1Y2ZhZC1hM2IwLTQ4MzQtYWYwZi00MTFmZTEwYjJjMDMiLCJpZCI6MTQ4NTYyLCJpYXQiOjE3MzU4ODQ1Nzh9."
-+ "jqwp1s3lkvA4Us0vA0skO03kqVya7Sj22kJJKWV6D8M";
+﻿// Set the access token
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhYTJkYjIyOS1hNWFlLTRmMTAtOTU1YS1hM2YzODVlNjljMjQiLCJpZCI6MTQ4NTYyLCJpYXQiOjE3NDExMDkxMTZ9.D2HdhLSFyS5ZpnQPjSbQaawpXkNfCKzDUpks74xO-30";
 
-// We'll create a hidden canvas for the color ramp
-const rampCanvas = document.createElement("canvas");
-rampCanvas.id = "colorRamp";
-rampCanvas.style.display = "none";
-document.body.appendChild(rampCanvas);
-
-// We'll create a 'toolbar' div for the UI controls
-const toolbarDiv = document.createElement("div");
-toolbarDiv.id = "toolbar";
-document.body.appendChild(toolbarDiv);
-
-/*=====================================================================================
-  1) Create the viewer with Cesium World Bathymetry, advanced lighting, fog toggles, etc.
-=====================================================================================*/
 (async function () {
-  // Because we need to await the bathymetry, do it first:
-  const bathymetry = await Cesium.createWorldBathymetryAsync({
-    requestVertexNormals: true,
-  });
+  // Create a color ramp element for the bathymetry visualization
+  const colorRampElement = document.createElement('canvas');
+  colorRampElement.id = "colorRamp";
+  colorRampElement.width = 100;
+  colorRampElement.height = 15;
+  document.body.appendChild(colorRampElement);
 
-  // Now create the viewer using that as terrain
+  // Create the viewer with bathymetry
   const viewer = new Cesium.Viewer("cesiumContainer", {
-    timeline: false,
-    animation: false,
-    terrainProvider: bathymetry,
+    timeline: true,
+    animation: true,
+    terrainProvider: await Cesium.createWorldBathymetryAsync({
+      requestVertexNormals: true,
+    }),
   });
 
-  // Switch the base layer to the CesiumJS "Natural Earth II" or whichever
-  // layer is at index 11. Adjust if your environment differs.
+  // Set to a good base layer for underwater visualization
   viewer.baseLayerPicker.viewModel.selectedImagery =
     viewer.baseLayerPicker.viewModel.imageryProviderViewModels[11];
 
   const scene = viewer.scene;
+  const globe = scene.globe;
+
+  // Enable lighting and high resolution terrain
+  globe.enableLighting = true;
+  globe.maximumScreenSpaceError = 1.0;
+  globe.depthTestAgainstTerrain = false; // Let the ROV be visible through terrain
+
   // Prevent the user from tilting beyond the ellipsoid surface
   scene.screenSpaceCameraController.maximumTiltAngle = Math.PI / 2.0;
 
-  // Some additional globe settings
-  const globe = scene.globe;
-  globe.enableLighting = true;
-  globe.maximumScreenSpaceError = 1.0; // load higher resolution for better seafloor shading
-
-  // Add a toggle to turn lighting on/off
-  Sandcastle.addToggleButton("Lighting enabled", true, function (checked) {
-    globe.enableLighting = checked;
-  });
-
-  // Light the scene with a hillshade-like effect
+  // Light the scene with a hillshade effect
   scene.light = new Cesium.DirectionalLight({
-    direction: new Cesium.Cartesian3(1, 0, 0), // We update this every frame below
+    direction: new Cesium.Cartesian3(1, 0, 0), // Updated dynamically
   });
 
   const camera = scene.camera;
   const cameraMaxHeight = globe.ellipsoid.maximumRadius * 2;
   const scratchNormal = new Cesium.Cartesian3();
 
-  /*========================================================
-    2) Pre-render hook to update the directional light
-       based on the camera location.
-  ========================================================*/
+  // Update light direction based on camera position
   scene.preRender.addEventListener(function (scene, time) {
     const surfaceNormal = globe.ellipsoid.geodeticSurfaceNormal(
       camera.positionWC,
-      scratchNormal
+      scratchNormal,
     );
-    Cesium.Cartesian3.negate(surfaceNormal, surfaceNormal);
-    Cesium.Cartesian3.add(surfaceNormal, camera.rightWC, surfaceNormal);
-    Cesium.Cartesian3.normalize(surfaceNormal, scene.light.direction);
+    const negativeNormal = Cesium.Cartesian3.negate(surfaceNormal, surfaceNormal);
+    scene.light.direction = Cesium.Cartesian3.normalize(
+      Cesium.Cartesian3.add(negativeNormal, camera.rightWC, surfaceNormal),
+      scene.light.direction,
+    );
 
     const zoomMagnitude =
       Cesium.Cartesian3.magnitude(camera.positionWC) / cameraMaxHeight;
+
     updateGlobeMaterialUniforms(zoomMagnitude);
   });
 
-  // Fog toggle
-  Sandcastle.addToggleButton("Fog enabled", true, (checked) => {
-    scene.fog.enabled = checked;
-    globe.showGroundAtmosphere = checked;
-  });
-
-  // Setup advanced color shading / contour lines
+  // ===== Globe material setup (color ramp and contour lines) =====
+  const minHeight = -10000.0;
+  const seaLevel = 0.0;
+  const maxHeight = 2000.0;
+  const countourLineSpacing = 500.0;
   let showContourLines = true;
   let showElevationColorRamp = true;
   let invertContourLines = false;
 
-  const minHeight = -10000.0;
-  const seaLevel = 0.0;
-  const maxHeight = 2000.0;
+  const range = maxHeight - minHeight;
+  const d = (height) => (height - minHeight) / range;
 
-  // We'll create a color ramp on the hidden canvas
+  // Create a color ramp for ocean depths
   function getColorRamp() {
     const ramp = document.getElementById("colorRamp");
     ramp.width = 100;
@@ -100,13 +80,7 @@ document.body.appendChild(toolbarDiv);
     const ctx = ramp.getContext("2d");
     const grd = ctx.createLinearGradient(0, 0, 100, 0);
 
-    // We'll define a small helper to scale the gradient stops
-    const range = maxHeight - minHeight;
-    function d(h) {
-      return (h - minHeight) / range;
-    }
-
-    // Add color stops from shallow water => deep => land
+    // Deep ocean color scale (cmocean 'deep')
     grd.addColorStop(d(maxHeight), "#B79E6C");
     grd.addColorStop(d(100.0), "#FBFFEE");
     grd.addColorStop(d(0.0), "#F9FCCA");
@@ -126,14 +100,18 @@ document.body.appendChild(toolbarDiv);
     return ramp;
   }
 
-  // Optionally define a composite material that merges color ramp with contour lines
   function getElevationContourMaterial() {
+    // Creates a composite material with both elevation shading and contour lines
     return new Cesium.Material({
       fabric: {
         type: "ElevationColorContour",
         materials: {
-          contourMaterial: { type: "ElevationContour" },
-          elevationRampMaterial: { type: "ElevationRamp" },
+          contourMaterial: {
+            type: "ElevationContour",
+          },
+          elevationRampMaterial: {
+            type: "ElevationRamp",
+          },
         },
         components: {
           diffuse:
@@ -150,14 +128,16 @@ document.body.appendChild(toolbarDiv);
     if (!Cesium.defined(material)) {
       return;
     }
-    // Adjust contour spacing based on zoom
+
     const spacing = 5.0 * Math.pow(10, Math.floor(4 * zoomMagnitude));
     if (showContourLines) {
       const uniforms = showElevationColorRamp
         ? material.materials.contourMaterial.uniforms
         : material.uniforms;
+
       uniforms.spacing = spacing * scene.verticalExaggeration;
     }
+
     if (showElevationColorRamp) {
       const uniforms = showContourLines
         ? material.materials.elevationRampMaterial.uniforms
@@ -177,15 +157,12 @@ document.body.appendChild(toolbarDiv);
         shadingUniforms.image = getColorRamp();
         shadingUniforms.minimumHeight = minHeight * scene.verticalExaggeration;
         shadingUniforms.maximumHeight = maxHeight * scene.verticalExaggeration;
-
         shadingUniforms = material.materials.contourMaterial.uniforms;
         shadingUniforms.width = 1.0;
-        shadingUniforms.spacing =
-          500.0 * scene.verticalExaggeration; // default contour spacing
+        shadingUniforms.spacing = countourLineSpacing * scene.verticalExaggeration;
         shadingUniforms.color = invertContourLines
           ? Cesium.Color.WHITE.withAlpha(0.5)
           : Cesium.Color.BLACK.withAlpha(0.5);
-
         globe.material = material;
         return;
       }
@@ -193,7 +170,7 @@ document.body.appendChild(toolbarDiv);
       material = Cesium.Material.fromType("ElevationContour");
       const shadingUniforms = material.uniforms;
       shadingUniforms.width = 1.0;
-      shadingUniforms.spacing = 500.0 * scene.verticalExaggeration;
+      shadingUniforms.spacing = countourLineSpacing * scene.verticalExaggeration;
       shadingUniforms.color = invertContourLines
         ? Cesium.Color.WHITE
         : Cesium.Color.BLACK;
@@ -211,85 +188,284 @@ document.body.appendChild(toolbarDiv);
       return;
     }
 
-    globe.material = undefined; // No special material
+    globe.material = undefined;
   }
 
-  updateGlobeMaterial();
-
-  Sandcastle.addToggleButton(
-    "Color ramp enabled",
-    showElevationColorRamp,
-    function (checked) {
-      showElevationColorRamp = checked;
-      updateGlobeMaterial();
-    }
-  );
-
-  Sandcastle.addToggleButton(
-    "Contour lines enabled",
-    showContourLines,
-    function (checked) {
-      showContourLines = checked;
-      updateGlobeMaterial();
-    }
-  );
-
-  Sandcastle.addToggleButton(
-    "Invert contour line color",
-    invertContourLines,
-    function (checked) {
-      invertContourLines = checked;
-      updateGlobeMaterial();
-    }
-  );
-
-  // Vertical exaggeration
+  // Set up vertical exaggeration controls
   const viewModel = {
-    exaggeration: scene.verticalExaggeration,
+    exaggeration: 1.0,
+    minHeight: minHeight,
+    maxHeight: maxHeight,
   };
 
   function updateExaggeration() {
     scene.verticalExaggeration = Number(viewModel.exaggeration);
+    updateGlobeMaterial(); // Update the material when exaggeration changes
   }
 
+  // Create the vertical exaggeration slider HTML
+  const toolbarContainer = document.createElement('div');
+  toolbarContainer.id = 'toolbar';
+  toolbarContainer.style.position = 'absolute';
+  toolbarContainer.style.top = '10px';
+  toolbarContainer.style.right = '10px';
+  toolbarContainer.style.padding = '10px';
+  toolbarContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+  toolbarContainer.style.borderRadius = '5px';
+  toolbarContainer.innerHTML = `
+    <div>
+      <div>Vertical Exaggeration: <span data-bind="text: exaggeration"></span>x</div>
+      <input type="range" min="1" max="10" step="0.1" data-bind="value: exaggeration, valueUpdate: 'input'">
+    </div>
+  `;
+  document.body.appendChild(toolbarContainer);
+
+  // Setup Knockout bindings for sliders
   Cesium.knockout.track(viewModel);
-  Cesium.knockout.applyBindings(viewModel, toolbarDiv);
+  const toolbar = document.getElementById("toolbar");
+  Cesium.knockout.applyBindings(viewModel, toolbar);
   for (const name in viewModel) {
-    if (Object.prototype.hasOwnProperty.call(viewModel, name)) {
+    if (viewModel.hasOwnProperty(name)) {
       Cesium.knockout.getObservable(viewModel, name).subscribe(updateExaggeration);
     }
   }
 
-  // Optionally set an initial camera
-  scene.camera.setView({
-    destination: new Cesium.Cartesian3(
-      -3877002.181627189,
-      5147948.256341475,
-      864384.3423478723
-    ),
-    orientation: new Cesium.HeadingPitchRoll(
-      5.914830423853524,
-      -0.7139104486007932,
-      0.00017507632714419685
-    ),
-  });
+  // Apply the initial globe material
+  updateGlobeMaterial();
 
-  /*======================================================================
-    3) Load your CZML from Ion (Asset ID = 3167038), track "Hercules"
-  ======================================================================*/
+  // ===== Debug Panel Setup =====
+  // Create a debug panel to show orientation information
+  const debugPanel = document.createElement('div');
+  debugPanel.id = 'debugPanel';
+  debugPanel.style.position = 'absolute';
+  debugPanel.style.bottom = '10px';
+  debugPanel.style.left = '10px';
+  debugPanel.style.padding = '10px';
+  debugPanel.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+  debugPanel.style.color = 'white';
+  debugPanel.style.borderRadius = '5px';
+  debugPanel.style.fontFamily = 'monospace';
+  debugPanel.style.fontSize = '12px';
+  debugPanel.style.maxWidth = '300px';
+  debugPanel.style.maxHeight = '200px';
+  debugPanel.style.overflow = 'auto';
+  debugPanel.innerHTML = `
+    <h3>ROV Orientation Info</h3>
+    <div id="orientationInfo">
+      <div>Heading: <span id="headingValue">N/A</span>°</div>
+      <div>Quaternion: <span id="quaternionValue">N/A</span></div>
+    </div>
+  `;
+  document.body.appendChild(debugPanel);
+
+  // Load and display the CZML
   try {
-    const czmlResource = Cesium.IonResource.fromAssetId(3167038);
-    const czmlDataSource = await Cesium.CzmlDataSource.load(czmlResource);
-    viewer.dataSources.add(czmlDataSource);
-
-    // If the czml has an entity "Hercules", track it
-    const herculesEntity = czmlDataSource.entities.getById("Hercules");
-    if (herculesEntity) {
-      viewer.trackedEntity = herculesEntity;
+    // Try to load the latest CZML file with today's date
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    console.log(`Looking for CZML file with date: ${today}`);
+    
+    // Define potential file paths to try
+    const filePaths = [
+      `./NA156_H2021_${today}.czml`,
+      "./NA156_H2021_manual.czml",
+      // Add any other potential file names here
+    ];
+    
+    console.log("Attempting to load CZML from the following paths:", filePaths);
+    
+    let czmlDataSource = null;
+    let loadSuccess = false;
+    
+    // Try each file path until one works
+    for (const filePath of filePaths) {
+      if (loadSuccess) break;
+      
+      try {
+        console.log(`Trying to load: ${filePath}`);
+        const czmlResource = new Cesium.Resource({
+          url: filePath,
+          proxy: new Cesium.DefaultProxy('/proxy/')
+        });
+        
+        czmlDataSource = await Cesium.CzmlDataSource.load(czmlResource);
+        console.log(`Successfully loaded: ${filePath}`);
+        loadSuccess = true;
+      } catch (error) {
+        console.log(`Failed to load: ${filePath}`, error);
+      }
+    }
+    
+    // If no local files worked, try from Ion
+    if (!loadSuccess) {
+      console.log("Local CZML not found, using Ion asset instead...");
+      const ionResource = await Cesium.IonResource.fromAssetId(3167337);
+      czmlDataSource = await Cesium.CzmlDataSource.load(ionResource);
+      console.log("Successfully loaded CZML from Ion");
+      loadSuccess = true;
+    }
+    
+    if (!loadSuccess || !czmlDataSource) {
+      throw new Error("Failed to load any CZML source");
     }
 
-    viewer.zoomTo(czmlDataSource);
+    await viewer.dataSources.add(czmlDataSource);
+    console.log("CZML added to viewer");
+
+    // Get the Hercules entity
+    const herculesEntity = czmlDataSource.entities.getById("Hercules");
+
+    if (herculesEntity) {
+      console.log("Found Hercules entity in CZML");
+      // Use the clock settings from the CZML
+      viewer.clock.multiplier = 10;
+
+      // Add listener to display orientation changes
+      viewer.clock.onTick.addEventListener(function() {
+        if (herculesEntity.orientation) {
+          try {
+            // Get current orientation
+            const orientation = herculesEntity.orientation.getValue(viewer.clock.currentTime);
+            if (orientation) {
+              // Convert quaternion to heading
+              const qx = orientation.x;
+              const qy = orientation.y;
+              const qz = orientation.z;
+              const qw = orientation.w;
+              
+              // Calculate heading (approximate for simple quaternions)
+              let heading = Math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz));
+              heading = heading * (180 / Math.PI); // Convert to degrees
+              if (heading < 0) heading += 360; // Normalize to 0-360
+              
+              // Update debug panel
+              document.getElementById('headingValue').textContent = heading.toFixed(1);
+              document.getElementById('quaternionValue').textContent = 
+                `[${qx.toFixed(3)}, ${qy.toFixed(3)}, ${qz.toFixed(3)}, ${qw.toFixed(3)}]`;
+            }
+          } catch (error) {
+            console.error("Error updating orientation debug:", error);
+          }
+        }
+      });
+
+      // Load the ROV model
+      try {
+        console.log("Loading ROV model from Ion...");
+        const modelResource = await Cesium.IonResource.fromAssetId(2961836);
+
+        // Create model with manual orientation adjustment
+        herculesEntity.model = new Cesium.ModelGraphics({
+          uri: modelResource,
+          scale: 0.04, // Scale to represent approximately 4 meters length
+          minimumPixelSize: 64,
+          maximumScale: 20,
+          runAnimations: true,
+          // No need for additional transformations - using CZML orientation
+        });
+
+        // Track the ROV with the camera
+        viewer.trackedEntity = herculesEntity;
+
+        // Add a better camera position relative to the ROV
+        viewer.trackedEntityChanged.addEventListener(function() {
+          viewer.zoomTo(herculesEntity, new Cesium.HeadingPitchRange(
+            0, // Use the entity's orientation for heading
+            -Math.PI/6, // Look down slightly
+            15 // 15 meters range for better visibility
+          ));
+        });
+
+        // Adjust camera settings for better viewing
+        viewer.scene.screenSpaceCameraController.minimumZoomDistance = 2;
+        viewer.scene.screenSpaceCameraController.maximumZoomDistance = 100;
+      } catch (modelError) {
+        console.error("Failed to load ROV model:", modelError);
+      }
+    } else {
+      console.error("Hercules entity not found in CZML data");
+    }
   } catch (err) {
-    console.error("Error loading the CZML from Ion:", err);
+    console.error("Error loading data:", err);
+  }
+
+  // Add UI controls for toggling visualization features
+  if (typeof Sandcastle !== 'undefined') {
+    Sandcastle.addToggleButton("Lighting enabled", true, function (checked) {
+      globe.enableLighting = checked;
+    });
+
+    Sandcastle.addToggleButton("Fog enabled", true, (checked) => {
+      scene.fog.enabled = checked;
+      globe.showGroundAtmosphere = checked;
+    });
+
+    Sandcastle.addToggleButton(
+      "Color ramp enabled",
+      showElevationColorRamp,
+      function (checked) {
+        showElevationColorRamp = checked;
+        updateGlobeMaterial();
+      },
+    );
+
+    Sandcastle.addToggleButton(
+      "Contour lines enabled",
+      showContourLines,
+      function (checked) {
+        showContourLines = checked;
+        updateGlobeMaterial();
+      },
+    );
+
+    Sandcastle.addToggleButton(
+      "Invert contour line color",
+      invertContourLines,
+      function (checked) {
+        invertContourLines = checked;
+        updateGlobeMaterial();
+      },
+    );
+  } else {
+    // Create simple buttons if Sandcastle isn't available
+    const createToggleButton = (label, initialState, callback) => {
+      const button = document.createElement('button');
+      button.textContent = `${label}: ${initialState ? 'ON' : 'OFF'}`;
+      button.style.margin = '5px';
+      button.style.padding = '5px 10px';
+
+      let state = initialState;
+      button.onclick = () => {
+        state = !state;
+        button.textContent = `${label}: ${state ? 'ON' : 'OFF'}`;
+        callback(state);
+      };
+
+      toolbarContainer.appendChild(button);
+    };
+
+    // Add visualization toggle buttons
+    createToggleButton("Lighting", true, (checked) => {
+      globe.enableLighting = checked;
+    });
+
+    createToggleButton("Fog", true, (checked) => {
+      scene.fog.enabled = checked;
+      globe.showGroundAtmosphere = checked;
+    });
+
+    createToggleButton("Color ramp", showElevationColorRamp, (checked) => {
+      showElevationColorRamp = checked;
+      updateGlobeMaterial();
+    });
+
+    createToggleButton("Contour lines", showContourLines, (checked) => {
+      showContourLines = checked;
+      updateGlobeMaterial();
+    });
+
+    createToggleButton("Invert contours", invertContourLines, (checked) => {
+      invertContourLines = checked;
+      updateGlobeMaterial();
+    });
   }
 })();
