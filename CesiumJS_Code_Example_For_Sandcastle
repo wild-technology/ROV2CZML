@@ -159,7 +159,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
         shadingUniforms.maximumHeight = maxHeight * scene.verticalExaggeration;
         shadingUniforms = material.materials.contourMaterial.uniforms;
         shadingUniforms.width = 1.0;
-        shadingUniforms.spacing = countourLineSpacing * scene.verticalExaggeration;
+        shadingUniforms.spacing = contourLineSpacing * scene.verticalExaggeration;
         shadingUniforms.color = invertContourLines
           ? Cesium.Color.WHITE.withAlpha(0.5)
           : Cesium.Color.BLACK.withAlpha(0.5);
@@ -170,7 +170,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
       material = Cesium.Material.fromType("ElevationContour");
       const shadingUniforms = material.uniforms;
       shadingUniforms.width = 1.0;
-      shadingUniforms.spacing = countourLineSpacing * scene.verticalExaggeration;
+      shadingUniforms.spacing = contourLineSpacing * scene.verticalExaggeration;
       shadingUniforms.color = invertContourLines
         ? Cesium.Color.WHITE
         : Cesium.Color.BLACK;
