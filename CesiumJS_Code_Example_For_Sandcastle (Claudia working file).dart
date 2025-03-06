@@ -287,7 +287,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
     // If no local files worked, try from Ion
     if (!loadSuccess) {
       console.log("Local CZML not found, using Ion asset instead...");
-      const ionResource = await Cesium.IonResource.fromAssetId(3167363);
+      const ionResource = await Cesium.IonResource.fromAssetId(3175030);
       czmlDataSource = await Cesium.CzmlDataSource.load(ionResource);
       console.log("Successfully loaded CZML from Ion");
       loadSuccess = true;
