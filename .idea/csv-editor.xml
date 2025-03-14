@@ -10,6 +10,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="\NA156_H2021_offset_0-50subset.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
       </map>
     </option>
   </component>
