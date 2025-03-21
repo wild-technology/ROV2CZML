@@ -215,6 +215,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
 
   // Apply the initial globe material
   updateGlobeMaterial();
+  
 
   // ===== Debug Panel Setup =====
   // Create a debug panel to show orientation information
@@ -243,6 +244,33 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
     <button id="visualizeDirectionBtn" style="margin-top:10px">Show Direction Vector</button>
   `;
   document.body.appendChild(debugPanel);
+  
+      // ===== Information Setup =====
+  // Create second Panel for Comments aditional data above ROV panel
+  const infoPanel = document.createElement('div');
+  infoPanel.id = 'debugPanel';
+  infoPanel.style.position = 'absolute';
+  infoPanel.style.bottom = '210px';
+  infoPanel.style.right = '10px';
+  infoPanel.style.padding = '10px';
+  infoPanel.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+  infoPanel.style.color = 'white';
+  infoPanel.style.borderRadius = '5px';
+  infoPanel.style.fontFamily = 'monospace';
+  infoPanel.style.fontSize = '12px';
+  infoPanel.style.maxWidth = '300px';
+  infoPanel.style.maxHeight = '200px';
+  infoPanel.style.overflow = 'auto';
+  infoPanel.innerHTML = `
+    <h3>ROV Sensor Info</h3>
+    <div id="orientationInfo">
+      <div>Temperature: <span id="">N/A</span>°</div>
+      <div>Oxygen Levels: <span id="">N/A</span></div>
+      <div>Comments: <span id="">N/A</span></div>
+    </div>
+    <button id="visualizeDirectionBtn" style="margin-top:10px">Show Direction Vector</button>
+  `;
+  document.body.appendChild(infoPanel);
 
   // Direction vector visualization state
   window.showDirectionVector = false;
@@ -287,7 +315,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
     // If no local files worked, try from Ion
     if (!loadSuccess) {
       console.log("Local CZML not found, using Ion asset instead...");
-      const ionResource = await Cesium.IonResource.fromAssetId(3175081);
+      const ionResource = await Cesium.IonResource.fromAssetId(3216366);
       czmlDataSource = await Cesium.CzmlDataSource.load(ionResource);
       console.log("Successfully loaded CZML from Ion");
       loadSuccess = true;
@@ -356,6 +384,14 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
                 `Lat: ${lat}°, Lon: ${lon}°, Alt: ${alt}m`;
               document.getElementById('velocityValue').textContent = velocity;
 
+              
+              document.getElementById('').textContent = heading.toFixed(1);
+              document.getElementById('quaternionValue').textContent =
+                `[${qx.toFixed(3)}, ${qy.toFixed(3)}, ${qz.toFixed(3)}, ${qw.toFixed(3)}]`;
+              document.getElementById('positionValue').textContent =
+                `Lat: ${lat}°, Lon: ${lon}°, Alt: ${alt}m`;
+              document.getElementById('velocityValue').textContent = velocity;
+
               // Store heading history to detect changes
               const headingHistory = window.headingHistory || [];
               if (headingHistory.length === 0 ||
@@ -384,7 +420,7 @@ Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOi
       // Load the ROV model
       try {
         console.log("Loading ROV model from Ion...");
-        const modelResource = await Cesium.IonResource.fromAssetId(2961836);
+        const modelResource = await Cesium.IonResource.fromAssetId(3163466);
 
         // Create model with manual orientation adjustment
         herculesEntity.model = new Cesium.ModelGraphics({
