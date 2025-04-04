@@ -3,7 +3,7 @@ import csv
 import math
 from pathlib import Path
 from datetime import datetime, timedelta
-import pyproj
+
 
 # WGS84 ellipsoid constants are no longer needed as we use pyproj for transformations
 
