@@ -1,3 +1,5 @@
+      <div id="cesiumContainer"></div>
+          <script type="module">
 
       // Set the access token
       Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhYTJkYjIyOS1hNWFlLTRmMTAtOTU1YS1hM2YzODVlNjljMjQiLCJpZCI6MTQ4NTYyLCJpYXQiOjE3NDExMDkxMTZ9.D2HdhLSFyS5ZpnQPjSbQaawpXkNfCKzDUpks74xO-30";
@@ -397,7 +399,7 @@
                 }
               )
               }
-              
+            )
                 ;
               
                 //const comments;
@@ -535,3 +537,4 @@
       };
 
   })();
+  
