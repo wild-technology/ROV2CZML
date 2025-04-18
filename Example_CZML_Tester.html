@@ -514,6 +514,11 @@
               "Hide Direction Vector" : "Show Direction Vector";
           });
 
+          const viewer = new Cesium.Viewer("cesiumContainer", {
+  showRenderLoopErrors: false,
+  shouldAnimate: true,
+});
+
           // Track the ROV with the camera
           viewer.trackedEntity = herculesEntity;
 
@@ -539,6 +544,36 @@
       console.error("Error loading data:", err);
     }
 
+    
+const videoElement = document.getElementById("trailer");
+
+
+videoElement.play();
+const position = herculesEntity.position;
+
+const hpr = new Cesium.HeadingPitchRoll(
+  Cesium.Math.toRadians(0),  // Heading (Y rotation)
+  Cesium.Math.toRadians(-90),  // Pitch (X rotation)
+  Cesium.Math.toRadians(0)    // Roll (Z rotation)
+);
+
+const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+
+
+const videoEntity = viewer.entities.add({
+      name: "Video Plane",
+      position: position,
+      orientation: orientation,
+      plane: {
+        plane: new Cesium.Plane(Cesium.Cartesian3.UNIT_Z, 0.0),
+        dimensions: new Cesium.Cartesian2(50.0, 100.0),
+        material: new Cesium.ImageMaterialProperty({
+          image: videoElement,
+          transparent: true
+        })
+      }
+    });
+    
     // Add UI controls for toggling visualization features
     if (typeof Sandcastle !== 'undefined') {
       Sandcastle.addToggleButton("Lighting enabled", true, function (checked) {
@@ -549,6 +584,7 @@
       };
 
   })();
+
   
   
   </script>
