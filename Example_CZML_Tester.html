@@ -15,7 +15,6 @@
 
       // Set the access token
       Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhYTJkYjIyOS1hNWFlLTRmMTAtOTU1YS1hM2YzODVlNjljMjQiLCJpZCI6MTQ4NTYyLCJpYXQiOjE3NDExMDkxMTZ9.D2HdhLSFyS5ZpnQPjSbQaawpXkNfCKzDUpks74xO-30";
-
   (async function () {
     // Create a color ramp element for the bathymetry visualization
     const colorRampElement = document.createElement('canvas');
@@ -392,8 +391,8 @@
                   `Lat: ${lat}°, Lon: ${lon}°, Alt: ${alt}m`;
                 document.getElementById('velocityValue').textContent = velocity;
 
-                //Get the temperature from the file TEST
-                czmlDataSource.then(function(dataSource){
+                //Get the temperature from the file TEST    IGNORE FOR NOW
+                /* czmlDataSource.then(function(dataSource){
 
                 const entities = dataSource.entities.values;
 
@@ -411,15 +410,21 @@
                 }
               )
               }
-            )
-                ;
+            );
+            */
               
-                //const comments;
+                //const comments;    IGNORE FOR NOW
                 
               
-               //document.getElementById('tempValue').textContent;
-               document.getElementById('oxyLevel').textContent = oxygen;
-               // document.getElementById('comment').textContent;
+               //document.getElementById('tempValue').textContent;    IGNORE FOR NOW
+
+
+
+               //document.getElementById('oxyLevel').textContent = oxygen;    IGNORE FOR NOW
+
+
+
+               // document.getElementById('comment').textContent;   IGNORE FOR NOW
 
                 // Store heading history to detect changes
                 const headingHistory = window.headingHistory || [];
@@ -449,17 +454,48 @@
         
         // Load the ROV model
         try {
+       // const videoElement = document.getElementById("trailer");
+        const videoPosition =  new Cesium.Cartesian3(-5489512.243435692, -2429604.0769140827, 2147368.4098504493,);
+        const cartographic = Cesium.Cartographic.fromCartesian(videoPosition);
+        cartographic.height += 7.0; // Approximate 15 pixels in world space
+
+        // Convert back to Cartesian
+        const elevatedPosition = Cesium.Cartographic.toCartesian(cartographic)
+        const hpr = new Cesium.HeadingPitchRoll(
+          Cesium.Math.toRadians(45),  // Heading (Y rotation)
+          Cesium.Math.toRadians(-90),  // Pitch (X rotation)
+          Cesium.Math.toRadians(0)    // Roll (Z rotation)
+          );
+        const orientation = Cesium.Transforms.headingPitchRollQuaternion(elevatedPosition, hpr);
+        const videoEntity = viewer.entities.add({
+          name: "Video Plane",
+          position: elevatedPosition,
+          orientation: orientation,
+           box: {
+              dimensions: new Cesium.Cartesian3(5.0, 10.0, 0.50), // width, height, "thickness" (depth)
+              material: Cesium.Color.WHITE.withAlpha(1.0)
+              /*material: new Cesium.ImageMaterialProperty({
+              image: videoElement,
+             transparent: false
+              })*/
+          }
+        });
+        //videoElement.play();
+      }
+        catch(err) {
+          console.error("Video Error:", err)
+        }
+        try {
           console.log("Loading ROV model from Ion...");
           const modelResource = await Cesium.IonResource.fromAssetId(3163466);
 
           // Create model with manual orientation adjustment
           herculesEntity.model = new Cesium.ModelGraphics({
             uri: modelResource,
-            scale: 0.04, // Scale to represent approximately 4 meters length
-            minimumPixelSize: 64,
-            maximumScale: 20,
+            scale: 1, // Scale to represent approximately 4 meters length
             runAnimations: true,
-          });
+          },
+        );
 
           // Add a direction arrow to visualize heading
           let directionArrow = viewer.entities.add({
@@ -514,11 +550,6 @@
               "Hide Direction Vector" : "Show Direction Vector";
           });
 
-          const viewer = new Cesium.Viewer("cesiumContainer", {
-  showRenderLoopErrors: false,
-  shouldAnimate: true,
-});
-
           // Track the ROV with the camera
           viewer.trackedEntity = herculesEntity;
 
@@ -544,36 +575,8 @@
       console.error("Error loading data:", err);
     }
 
-    
-const videoElement = document.getElementById("trailer");
+  
 
-
-videoElement.play();
-const position = herculesEntity.position;
-
-const hpr = new Cesium.HeadingPitchRoll(
-  Cesium.Math.toRadians(0),  // Heading (Y rotation)
-  Cesium.Math.toRadians(-90),  // Pitch (X rotation)
-  Cesium.Math.toRadians(0)    // Roll (Z rotation)
-);
-
-const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
-
-
-const videoEntity = viewer.entities.add({
-      name: "Video Plane",
-      position: position,
-      orientation: orientation,
-      plane: {
-        plane: new Cesium.Plane(Cesium.Cartesian3.UNIT_Z, 0.0),
-        dimensions: new Cesium.Cartesian2(50.0, 100.0),
-        material: new Cesium.ImageMaterialProperty({
-          image: videoElement,
-          transparent: true
-        })
-      }
-    });
-    
     // Add UI controls for toggling visualization features
     if (typeof Sandcastle !== 'undefined') {
       Sandcastle.addToggleButton("Lighting enabled", true, function (checked) {
