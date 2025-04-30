@@ -453,38 +453,7 @@
 
         
         // Load the ROV model
-        try {
-       // const videoElement = document.getElementById("trailer");
-        const videoPosition =  new Cesium.Cartesian3(-5489512.243435692, -2429604.0769140827, 2147368.4098504493,);
-        const cartographic = Cesium.Cartographic.fromCartesian(videoPosition);
-        cartographic.height += 7.0; // Approximate 15 pixels in world space
-
-        // Convert back to Cartesian
-        const elevatedPosition = Cesium.Cartographic.toCartesian(cartographic)
-        const hpr = new Cesium.HeadingPitchRoll(
-          Cesium.Math.toRadians(45),  // Heading (Y rotation)
-          Cesium.Math.toRadians(-90),  // Pitch (X rotation)
-          Cesium.Math.toRadians(0)    // Roll (Z rotation)
-          );
-        const orientation = Cesium.Transforms.headingPitchRollQuaternion(elevatedPosition, hpr);
-        const videoEntity = viewer.entities.add({
-          name: "Video Plane",
-          position: elevatedPosition,
-          orientation: orientation,
-           box: {
-              dimensions: new Cesium.Cartesian3(5.0, 10.0, 0.50), // width, height, "thickness" (depth)
-              material: Cesium.Color.WHITE.withAlpha(1.0)
-              /*material: new Cesium.ImageMaterialProperty({
-              image: videoElement,
-             transparent: false
-              })*/
-          }
-        });
-        //videoElement.play();
-      }
-        catch(err) {
-          console.error("Video Error:", err)
-        }
+       
         try {
           console.log("Loading ROV model from Ion...");
           const modelResource = await Cesium.IonResource.fromAssetId(3163466);
@@ -492,10 +461,49 @@
           // Create model with manual orientation adjustment
           herculesEntity.model = new Cesium.ModelGraphics({
             uri: modelResource,
-            scale: 1, // Scale to represent approximately 4 meters length
+            scale: 0.4, // Scale to represent approximately 4 meters length
             runAnimations: true,
           },
         );
+            try {
+          // const videoElement = document.getElementById("trailer");
+          
+               // Video's offset above the model
+               const offsetInMeters = 3.0;
+
+              // Define a CallbackProperty that returns the offset position
+              const videoPosition = new Cesium.CallbackProperty((time, result) => {
+                const modelPosition = herculesEntity.position.getValue(time);
+                if (!modelPosition) return undefined;
+
+                  // Convert to Cartographic to adjust height
+                  const modelCart = Cesium.Cartographic.fromCartesian(modelPosition);
+                  modelCart.height += offsetInMeters; // add vertical offset
+                return Cesium.Cartographic.toCartesian(modelCart, Cesium.Ellipsoid.WGS84, result);
+                }, false);
+        
+                const videoEntity = viewer.entities.add({
+                  name: "Video Plane",
+                  position: videoPosition,
+
+                  box: {
+                      dimensions: new Cesium.Cartesian3(5.0, 0.003, 2.5), // width, depth, height
+                      material: Cesium.Color.WHITE.withAlpha(1.0)
+                      /*material: new Cesium.ImageMaterialProperty({
+                        image: videoElement,
+                        transparent: false
+                      })*/
+                  }
+            });
+            videoEntity.orientation = new Cesium.CallbackProperty((time, result) => {
+            const ori = herculesEntity.orientation?.getValue(time, result);
+            return ori ?? Cesium.Quaternion.IDENTITY;
+          }, false);
+            //videoElement.play();
+          }
+            catch(err) {
+              console.error("Video Error:", err)
+            }
 
           // Add a direction arrow to visualize heading
           let directionArrow = viewer.entities.add({
