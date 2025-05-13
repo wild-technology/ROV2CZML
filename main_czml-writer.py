@@ -538,20 +538,11 @@ def build_czml(data):
                     "parent": "Hercules",
                     "availability": availability_str,
                     "position": {"reference": "Hercules#position"},
-                    "label": {
-                        "style": "FILL_AND_OUTLINE",
-                        "scale": 0.5,
-                        "horizontalOrigin": "LEFT",
-                        "show": True,
-                        "text": f"{sensor_name}\nO2: {o2:.2f} mg/L\ Temp: {temp:.2f}°C",
-                        "disableDepthTestDistance": 9999999999,
-                        "pixelOffset": {"cartesian2": [5, -30]},
-                        "fillColor": {"rgba": [255, 255, 255, 255]},
-                        "verticalOrigin": "CENTER",
-                        "font": "bold 15pt Calibri",
-                        "distanceDisplayCondition": {"distanceDisplayCondition": [100, 9999999]},
-                        "outlineWidth": 2,
-                        "outlineColor": {"rgba": [0, 0, 0, 255]}
+                    "Data": {
+                        "text": f"{sensor_name}",
+                        "Oxygen": f"{o2:.2f} mgL",
+                        "Tempertature": f"{temp:.2f}°C",
+                        "Comments": f"{}"
                     }
                 }
                 czml.append(sensor_packet)
